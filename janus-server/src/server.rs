@@ -172,11 +172,11 @@ fn matches_route(path: &str, pattern: &str) -> bool {
 async fn update_status_stats(state: &Arc<AppState>, status: StatusCode) {
     let mut stats = state.stats.write().await;
     let code = status.as_u16();
-    if code >= 200 && code < 300 {
+    if (200..300).contains(&code) {
         stats.status_codes.success += 1;
-    } else if code >= 300 && code < 400 {
+    } else if (300..400).contains(&code) {
         stats.status_codes.redirect += 1;
-    } else if code >= 400 && code < 500 {
+    } else if (400..500).contains(&code) {
         stats.status_codes.client_error += 1;
     } else if code >= 500 {
         stats.status_codes.server_error += 1;

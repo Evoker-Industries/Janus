@@ -62,10 +62,7 @@ impl ManagementClient {
         }
         
         // Try to receive from channel
-        match self.rx.try_recv() {
-            Ok(msg) => Some(msg),
-            Err(_) => None,
-        }
+        self.rx.try_recv().ok()
     }
 }
 

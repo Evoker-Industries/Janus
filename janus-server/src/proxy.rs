@@ -69,7 +69,7 @@ impl ProxyHandler {
         }
 
         // Set host header to upstream
-        let host = backend.split(':').next().unwrap_or(&backend);
+        let host = backend.split(':').next().unwrap_or(backend);
         builder = builder.header(hyper::header::HOST, host);
 
         // Collect body

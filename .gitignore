@@ -1,1 +1,4 @@
 /target
+*.log
+janus.toml
+!examples/janus.toml
