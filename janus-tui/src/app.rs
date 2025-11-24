@@ -349,6 +349,11 @@ impl App {
                             self.selected_upstream -= 1;
                         }
                     }
+                    Tab::Config => {
+                        if self.selected_static_dir > 0 {
+                            self.selected_static_dir -= 1;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -368,6 +373,13 @@ impl App {
                             }
                         }
                     }
+                    Tab::Config => {
+                        if let Some(ref config) = self.config {
+                            if self.selected_static_dir < config.static_files.len().saturating_sub(1) {
+                                self.selected_static_dir += 1;
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -379,9 +391,14 @@ impl App {
                         if let Some(ref config) = self.config {
                             if let Some(route) = config.routes.get(self.selected_route) {
                                 let path = route.path.clone();
+                                let was_last = self.selected_route == config.routes.len().saturating_sub(1);
                                 self.send_message(ClientMessage::RemoveRoute(path.clone())).await;
                                 self.send_message(ClientMessage::GetConfig).await;
                                 self.add_message(&format!("Route '{}' removed", path), false);
+                                // Adjust selection after deletion
+                                if was_last && self.selected_route > 0 {
+                                    self.selected_route -= 1;
+                                }
                             }
                         }
                     }
@@ -390,9 +407,14 @@ impl App {
                             let names: Vec<_> = config.upstreams.keys().collect();
                             if let Some(name) = names.get(self.selected_upstream) {
                                 let name = (*name).clone();
+                                let was_last = self.selected_upstream == config.upstreams.len().saturating_sub(1);
                                 self.send_message(ClientMessage::RemoveUpstream(name.clone())).await;
                                 self.send_message(ClientMessage::GetConfig).await;
                                 self.add_message(&format!("Upstream '{}' removed", name), false);
+                                // Adjust selection after deletion
+                                if was_last && self.selected_upstream > 0 {
+                                    self.selected_upstream -= 1;
+                                }
                             }
                         }
                     }
@@ -401,9 +423,14 @@ impl App {
                         if let Some(ref config) = self.config {
                             if let Some(static_dir) = config.static_files.get(self.selected_static_dir) {
                                 let path = static_dir.path.clone();
+                                let was_last = self.selected_static_dir == config.static_files.len().saturating_sub(1);
                                 self.send_message(ClientMessage::RemoveStaticDir(path.clone())).await;
                                 self.send_message(ClientMessage::GetConfig).await;
                                 self.add_message(&format!("Static directory '{}' removed", path), false);
+                                // Adjust selection after deletion
+                                if was_last && self.selected_static_dir > 0 {
+                                    self.selected_static_dir -= 1;
+                                }
                             }
                         }
                     }
