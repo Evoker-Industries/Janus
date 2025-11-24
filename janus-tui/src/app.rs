@@ -3,6 +3,8 @@
 use crate::client::ManagementClient;
 use crossterm::event::{KeyCode, KeyEvent};
 use janus_common::{ClientMessage, JanusConfig, ServerMessage, ServerStats, ServerStatus};
+use janus_common::config::{RouteConfig, StaticFileConfig};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tracing::{debug, error};
 
@@ -35,12 +37,19 @@ pub struct App {
     /// Selected item in lists
     pub selected_route: usize,
     pub selected_upstream: usize,
+    pub selected_static_dir: usize,
     
     /// Edit mode
     pub edit_mode: EditMode,
     
     /// Input buffer for editing
     pub input_buffer: String,
+    
+    /// New route being created
+    pub new_route: NewRoute,
+    
+    /// New static directory being created
+    pub new_static_dir: NewStaticDir,
     
     /// Last refresh time
     pub last_refresh: Instant,
@@ -84,6 +93,33 @@ impl Tab {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditMode {
     None,
+    /// Adding a new route - step 1: path
+    AddRoutePath,
+    /// Adding a new route - step 2: upstream
+    AddRouteUpstream,
+    /// Adding a new route - step 3: timeout
+    AddRouteTimeout,
+    /// Editing server port
+    EditServerPort,
+    /// Adding static directory - step 1: URL path
+    AddStaticPath,
+    /// Adding static directory - step 2: root directory
+    AddStaticRoot,
+}
+
+/// New route being created
+#[derive(Debug, Clone, Default)]
+pub struct NewRoute {
+    pub path: String,
+    pub upstream: String,
+    pub timeout: String,
+}
+
+/// New static directory being created
+#[derive(Debug, Clone, Default)]
+pub struct NewStaticDir {
+    pub path: String,
+    pub root: String,
 }
 
 /// Status message for display
@@ -106,8 +142,11 @@ impl App {
             messages: Vec::new(),
             selected_route: 0,
             selected_upstream: 0,
+            selected_static_dir: 0,
             edit_mode: EditMode::None,
             input_buffer: String::new(),
+            new_route: NewRoute::default(),
+            new_static_dir: NewStaticDir::default(),
             last_refresh: Instant::now(),
             refresh_interval: Duration::from_secs(2),
             needs_config_refresh: false,
@@ -340,8 +379,9 @@ impl App {
                         if let Some(ref config) = self.config {
                             if let Some(route) = config.routes.get(self.selected_route) {
                                 let path = route.path.clone();
-                                self.send_message(ClientMessage::RemoveRoute(path)).await;
+                                self.send_message(ClientMessage::RemoveRoute(path.clone())).await;
                                 self.send_message(ClientMessage::GetConfig).await;
+                                self.add_message(&format!("Route '{}' removed", path), false);
                             }
                         }
                     }
@@ -349,12 +389,65 @@ impl App {
                         if let Some(ref config) = self.config {
                             let names: Vec<_> = config.upstreams.keys().collect();
                             if let Some(name) = names.get(self.selected_upstream) {
-                                self.send_message(ClientMessage::RemoveUpstream((*name).clone())).await;
+                                let name = (*name).clone();
+                                self.send_message(ClientMessage::RemoveUpstream(name.clone())).await;
                                 self.send_message(ClientMessage::GetConfig).await;
+                                self.add_message(&format!("Upstream '{}' removed", name), false);
+                            }
+                        }
+                    }
+                    Tab::Config => {
+                        // Delete selected static directory
+                        if let Some(ref config) = self.config {
+                            if let Some(static_dir) = config.static_files.get(self.selected_static_dir) {
+                                let path = static_dir.path.clone();
+                                self.send_message(ClientMessage::RemoveStaticDir(path.clone())).await;
+                                self.send_message(ClientMessage::GetConfig).await;
+                                self.add_message(&format!("Static directory '{}' removed", path), false);
                             }
                         }
                     }
                     _ => {}
+                }
+            }
+            
+            // Add new item
+            KeyCode::Char('a') => {
+                if self.connected {
+                    match self.current_tab {
+                        Tab::Routes => {
+                            // Check if there are any upstreams to route to
+                            if let Some(ref config) = self.config {
+                                if config.upstreams.is_empty() {
+                                    self.add_message("Cannot add route: no upstreams configured", true);
+                                } else {
+                                    self.new_route = NewRoute::default();
+                                    self.input_buffer.clear();
+                                    self.edit_mode = EditMode::AddRoutePath;
+                                    self.add_message("Enter route path (e.g., /api/* or /health)", false);
+                                }
+                            }
+                        }
+                        Tab::Config => {
+                            // Add static directory
+                            self.new_static_dir = NewStaticDir::default();
+                            self.input_buffer.clear();
+                            self.edit_mode = EditMode::AddStaticPath;
+                            self.add_message("Enter URL path for static files (e.g., /static/)", false);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            
+            // Edit port (on Config tab)
+            KeyCode::Char('p') => {
+                if self.current_tab == Tab::Config && self.connected {
+                    if let Some(ref config) = self.config {
+                        self.input_buffer = config.server.port.to_string();
+                        self.edit_mode = EditMode::EditServerPort;
+                        self.add_message(&format!("Enter new server port (current: {})", config.server.port), false);
+                    }
                 }
             }
             
@@ -364,9 +457,126 @@ impl App {
 
     /// Submit the current edit
     async fn submit_edit(&mut self) {
-        // For now, just clear the edit mode
-        // Full implementation would parse input and send appropriate commands
-        self.edit_mode = EditMode::None;
-        self.input_buffer.clear();
+        match self.edit_mode {
+            EditMode::AddRoutePath => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Path cannot be empty", true);
+                    return;
+                }
+                self.new_route.path = self.input_buffer.clone();
+                self.input_buffer.clear();
+                self.edit_mode = EditMode::AddRouteUpstream;
+                
+                // Show available upstreams
+                if let Some(ref config) = self.config {
+                    let upstreams: Vec<_> = config.upstreams.keys().collect();
+                    self.add_message(&format!("Enter upstream name. Available: {}", upstreams.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")), false);
+                }
+            }
+            EditMode::AddRouteUpstream => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Upstream cannot be empty", true);
+                    return;
+                }
+                // Validate upstream exists
+                if let Some(ref config) = self.config {
+                    if !config.upstreams.contains_key(&self.input_buffer) {
+                        self.add_message(&format!("Upstream '{}' not found", self.input_buffer), true);
+                        return;
+                    }
+                }
+                self.new_route.upstream = self.input_buffer.clone();
+                self.input_buffer = "30".to_string(); // Default timeout
+                self.edit_mode = EditMode::AddRouteTimeout;
+                self.add_message("Enter timeout in seconds (default: 30)", false);
+            }
+            EditMode::AddRouteTimeout => {
+                let timeout: u64 = self.input_buffer.parse().unwrap_or(30);
+                self.new_route.timeout = timeout.to_string();
+                
+                // Create and send the route
+                let route = RouteConfig {
+                    path: self.new_route.path.clone(),
+                    methods: vec![], // All methods
+                    upstream: self.new_route.upstream.clone(),
+                    rewrite: None,
+                    headers: HashMap::new(),
+                    timeout,
+                };
+                
+                self.send_message(ClientMessage::AddRoute(route)).await;
+                self.send_message(ClientMessage::GetConfig).await;
+                self.add_message(&format!("Route '{}' added successfully", self.new_route.path), false);
+                
+                // Reset state
+                self.edit_mode = EditMode::None;
+                self.input_buffer.clear();
+                self.new_route = NewRoute::default();
+            }
+            EditMode::EditServerPort => {
+                let port: u16 = match self.input_buffer.parse() {
+                    Ok(p) if p > 0 => p,
+                    _ => {
+                        self.add_message("Invalid port number", true);
+                        return;
+                    }
+                };
+                
+                self.send_message(ClientMessage::UpdateServerPort(port)).await;
+                self.send_message(ClientMessage::GetConfig).await;
+                
+                // Reset state
+                self.edit_mode = EditMode::None;
+                self.input_buffer.clear();
+            }
+            EditMode::AddStaticPath => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Path cannot be empty", true);
+                    return;
+                }
+                self.new_static_dir.path = self.input_buffer.clone();
+                self.input_buffer.clear();
+                self.edit_mode = EditMode::AddStaticRoot;
+                self.add_message("Enter root directory path (e.g., /var/www/html)", false);
+            }
+            EditMode::AddStaticRoot => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Root directory cannot be empty", true);
+                    return;
+                }
+                self.new_static_dir.root = self.input_buffer.clone();
+                
+                // Create and send the static config
+                let static_config = StaticFileConfig {
+                    path: self.new_static_dir.path.clone(),
+                    root: self.new_static_dir.root.clone(),
+                    index: "index.html".to_string(),
+                    directory_listing: true,
+                };
+                
+                self.send_message(ClientMessage::AddStaticDir(static_config)).await;
+                self.send_message(ClientMessage::GetConfig).await;
+                self.add_message(&format!("Static directory '{}' -> '{}' added", self.new_static_dir.path, self.new_static_dir.root), false);
+                
+                // Reset state
+                self.edit_mode = EditMode::None;
+                self.input_buffer.clear();
+                self.new_static_dir = NewStaticDir::default();
+            }
+            EditMode::None => {}
+        }
+    }
+    
+    /// Get the current edit prompt
+    pub fn get_edit_prompt(&self) -> &str {
+        match self.edit_mode {
+            EditMode::None => "",
+            EditMode::AddRoutePath => "Route path: ",
+            EditMode::AddRouteUpstream => "Upstream: ",
+            EditMode::AddRouteTimeout => "Timeout (seconds): ",
+            EditMode::EditServerPort => "Server port: ",
+            EditMode::AddStaticPath => "URL path: ",
+            EditMode::AddStaticRoot => "Root directory: ",
+        }
     }
 }

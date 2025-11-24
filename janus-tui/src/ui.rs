@@ -172,7 +172,7 @@ fn draw_routes(f: &mut Frame, app: &App, area: Rect) {
         ],
     )
     .header(header)
-    .block(Block::default().borders(Borders::ALL).title("Routes (j/k to navigate, d to delete)"));
+    .block(Block::default().borders(Borders::ALL).title("Routes (a: add, d: delete, j/k: navigate)"));
 
     f.render_widget(table, area);
 }
@@ -226,20 +226,89 @@ fn draw_upstreams(f: &mut Frame, app: &App, area: Rect) {
 
 /// Draw config tab
 fn draw_config(f: &mut Frame, app: &App, area: Rect) {
-    let config_text = if let Some(ref config) = app.config {
-        match config.to_toml() {
-            Ok(toml) => toml,
-            Err(e) => format!("Error serializing config: {}", e),
-        }
+    // Split into two sections: server settings and static directories
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(8),   // Server settings
+            Constraint::Min(5),      // Static directories
+        ])
+        .split(area);
+    
+    // Server settings
+    let mut server_lines = vec![
+        Line::styled("Server Settings", Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow)),
+        Line::raw(""),
+    ];
+    
+    if let Some(ref config) = app.config {
+        server_lines.extend(vec![
+            Line::from(vec![
+                Span::raw("  Bind Address: "),
+                Span::styled(&config.server.bind_address, Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(vec![
+                Span::raw("  Port: "),
+                Span::styled(config.server.port.to_string(), Style::default().fg(Color::Cyan)),
+                Span::styled(" (press 'p' to change)", Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(vec![
+                Span::raw("  Access Log: "),
+                Span::styled(if config.server.access_log { "enabled" } else { "disabled" }, Style::default().fg(Color::Green)),
+            ]),
+        ]);
     } else {
-        "No configuration loaded".to_string()
+        server_lines.push(Line::styled("No configuration loaded", Style::default().fg(Color::DarkGray)));
+    }
+    
+    let server_para = Paragraph::new(server_lines)
+        .block(Block::default().borders(Borders::ALL).title("Server (p: edit port, R: reload config)"));
+    f.render_widget(server_para, chunks[0]);
+    
+    // Static directories
+    let header_cells = ["URL Path", "Root Directory", "Index", "Dir Listing"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header = Row::new(header_cells).height(1);
+    
+    let rows: Vec<Row> = if let Some(ref config) = app.config {
+        config
+            .static_files
+            .iter()
+            .enumerate()
+            .map(|(i, sf)| {
+                let style = if i == app.selected_static_dir {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
+                
+                Row::new(vec![
+                    Cell::from(sf.path.clone()),
+                    Cell::from(sf.root.clone()),
+                    Cell::from(sf.index.clone()),
+                    Cell::from(if sf.directory_listing { "Yes" } else { "No" }),
+                ])
+                .style(style)
+            })
+            .collect()
+    } else {
+        vec![]
     };
-
-    let paragraph = Paragraph::new(config_text)
-        .block(Block::default().borders(Borders::ALL).title("Configuration (TOML) - Press R to reload"))
-        .wrap(Wrap { trim: false });
-
-    f.render_widget(paragraph, area);
+    
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(20),
+            Constraint::Percentage(40),
+            Constraint::Percentage(20),
+            Constraint::Percentage(20),
+        ],
+    )
+    .header(header)
+    .block(Block::default().borders(Borders::ALL).title("Static Directories (a: add, d: delete, j/k: navigate)"));
+    
+    f.render_widget(table, chunks[1]);
 }
 
 /// Draw stats tab
@@ -302,20 +371,28 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::raw("  1-6            - Jump to specific tab"),
         Line::raw("  j/k or ↑/↓     - Navigate lists"),
         Line::raw(""),
-        Line::styled("Actions", Style::default().add_modifier(Modifier::BOLD)),
+        Line::styled("Global Actions", Style::default().add_modifier(Modifier::BOLD)),
         Line::raw("  r              - Refresh data from server"),
         Line::raw("  R              - Reload server configuration from file"),
         Line::raw("  c              - Reconnect to server"),
-        Line::raw("  d / Delete     - Delete selected item"),
         Line::raw("  q              - Quit"),
         Line::raw(""),
-        Line::styled("Server Management", Style::default().add_modifier(Modifier::BOLD)),
-        Line::raw("  The server automatically reloads when the config file changes."),
-        Line::raw("  Changes made via the TUI are saved to the config file."),
+        Line::styled("Routes Tab", Style::default().add_modifier(Modifier::BOLD)),
+        Line::raw("  a              - Add new route"),
+        Line::raw("  d / Delete     - Delete selected route"),
         Line::raw(""),
-        Line::styled("Configuration File", Style::default().add_modifier(Modifier::BOLD)),
-        Line::raw("  Default location: ./janus.toml"),
-        Line::raw("  Specify custom path: janus /path/to/config.toml"),
+        Line::styled("Config Tab", Style::default().add_modifier(Modifier::BOLD)),
+        Line::raw("  p              - Edit server port"),
+        Line::raw("  a              - Add static directory"),
+        Line::raw("  d / Delete     - Delete selected static directory"),
+        Line::raw(""),
+        Line::styled("Editing", Style::default().add_modifier(Modifier::BOLD)),
+        Line::raw("  Enter          - Confirm input"),
+        Line::raw("  Esc            - Cancel editing"),
+        Line::raw(""),
+        Line::styled("Notes", Style::default().add_modifier(Modifier::BOLD)),
+        Line::raw("  Port changes require server restart to take effect."),
+        Line::raw("  Route and static directory changes apply immediately."),
     ];
 
     let paragraph = Paragraph::new(help_text)
@@ -351,10 +428,10 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 /// Draw footer
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let footer = if app.is_editing() {
-        Paragraph::new(format!("Input: {}_", app.input_buffer))
+        Paragraph::new(format!("{}{}_", app.get_edit_prompt(), app.input_buffer))
             .style(Style::default().fg(Color::Yellow))
     } else {
-        Paragraph::new("Press 'q' to quit | Tab to switch views | 'r' to refresh | '?' for help")
+        Paragraph::new("Press 'q' to quit | Tab to switch views | 'r' to refresh | 'a' to add route")
             .style(Style::default().fg(Color::DarkGray))
     };
 

@@ -16,6 +16,12 @@ pub enum ClientMessage {
     /// Update configuration (triggers live reload)
     UpdateConfig(JanusConfig),
     
+    /// Update server port (requires restart notice)
+    UpdateServerPort(u16),
+    
+    /// Update server bind address
+    UpdateBindAddress(String),
+    
     /// Add a new route
     AddRoute(crate::config::RouteConfig),
     
@@ -30,6 +36,12 @@ pub enum ClientMessage {
     
     /// Remove an upstream
     RemoveUpstream(String),
+    
+    /// Add a static file directory
+    AddStaticDir(crate::config::StaticFileConfig),
+    
+    /// Remove a static file directory by path
+    RemoveStaticDir(String),
     
     /// Reload configuration from file
     ReloadConfig,

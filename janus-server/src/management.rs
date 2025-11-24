@@ -194,6 +194,67 @@ async fn handle_message(msg: ClientMessage, state: &Arc<AppState>) -> ServerMess
             ServerMessage::Success(format!("Upstream '{}' removed", name))
         }
         
+        ClientMessage::UpdateServerPort(port) => {
+            let mut config = state.config.write().await;
+            let old_port = config.server.port;
+            config.server.port = port;
+            
+            // Save to file
+            if let Err(e) = config.save(&state.config_path) {
+                return ServerMessage::Error(format!("Failed to save config: {}", e));
+            }
+            
+            ServerMessage::Success(format!("Server port changed from {} to {}. Restart server to apply.", old_port, port))
+        }
+        
+        ClientMessage::UpdateBindAddress(address) => {
+            let mut config = state.config.write().await;
+            let old_address = config.server.bind_address.clone();
+            config.server.bind_address = address.clone();
+            
+            // Save to file
+            if let Err(e) = config.save(&state.config_path) {
+                return ServerMessage::Error(format!("Failed to save config: {}", e));
+            }
+            
+            ServerMessage::Success(format!("Bind address changed from {} to {}. Restart server to apply.", old_address, address))
+        }
+        
+        ClientMessage::AddStaticDir(static_config) => {
+            let mut config = state.config.write().await;
+            
+            // Check for duplicate path
+            if config.static_files.iter().any(|s| s.path == static_config.path) {
+                return ServerMessage::Error(format!("Static directory '{}' already exists", static_config.path));
+            }
+            
+            config.static_files.push(static_config.clone());
+            
+            // Save to file
+            if let Err(e) = config.save(&state.config_path) {
+                return ServerMessage::Error(format!("Failed to save config: {}", e));
+            }
+            
+            ServerMessage::Success(format!("Static directory '{}' added", static_config.path))
+        }
+        
+        ClientMessage::RemoveStaticDir(path) => {
+            let mut config = state.config.write().await;
+            let initial_len = config.static_files.len();
+            config.static_files.retain(|s| s.path != path);
+            
+            if config.static_files.len() == initial_len {
+                return ServerMessage::Error(format!("Static directory '{}' not found", path));
+            }
+            
+            // Save to file
+            if let Err(e) = config.save(&state.config_path) {
+                return ServerMessage::Error(format!("Failed to save config: {}", e));
+            }
+            
+            ServerMessage::Success(format!("Static directory '{}' removed", path))
+        }
+        
         ClientMessage::ReloadConfig => {
             match crate::reload::reload_config(state).await {
                 Ok(()) => ServerMessage::Success("Configuration reloaded from file".to_string()),
