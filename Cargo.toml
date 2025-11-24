@@ -44,3 +44,6 @@ thiserror = "1.0"
 # Utilities
 futures = "0.3"
 bytes = "1.5"
+
+# File watching
+notify = "6.1"

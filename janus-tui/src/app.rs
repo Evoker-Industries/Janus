@@ -47,6 +47,9 @@ pub struct App {
     
     /// Refresh interval
     pub refresh_interval: Duration,
+    
+    /// Flag to request config refresh
+    needs_config_refresh: bool,
 }
 
 /// Available tabs
@@ -81,10 +84,6 @@ impl Tab {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditMode {
     None,
-    AddRoute,
-    EditRoute,
-    AddUpstream,
-    EditUpstream,
 }
 
 /// Status message for display
@@ -92,7 +91,6 @@ pub enum EditMode {
 pub struct StatusMessage {
     pub text: String,
     pub is_error: bool,
-    pub timestamp: Instant,
 }
 
 impl App {
@@ -112,6 +110,7 @@ impl App {
             input_buffer: String::new(),
             last_refresh: Instant::now(),
             refresh_interval: Duration::from_secs(2),
+            needs_config_refresh: false,
         }
     }
 
@@ -134,13 +133,6 @@ impl App {
                 self.add_message(&format!("Connection failed: {}", e), true);
             }
         }
-    }
-
-    /// Disconnect from the server
-    pub async fn disconnect(&mut self) {
-        self.client = None;
-        self.connected = false;
-        self.add_message("Disconnected", false);
     }
 
     /// Send a message to the server
@@ -193,10 +185,8 @@ impl App {
             }
             ServerMessage::ConfigReloaded => {
                 self.add_message("Configuration reloaded", false);
-                // Request updated config
-                if let Some(ref mut client) = self.client {
-                    let _ = futures::executor::block_on(client.send(ClientMessage::GetConfig));
-                }
+                // Set flag to request updated config in next async tick
+                self.needs_config_refresh = true;
             }
             ServerMessage::ShuttingDown => {
                 self.add_message("Server is shutting down", true);
@@ -207,6 +197,12 @@ impl App {
 
     /// Auto-refresh data from server
     pub async fn auto_refresh(&mut self) {
+        // Handle pending config refresh request
+        if self.needs_config_refresh && self.connected {
+            self.send_message(ClientMessage::GetConfig).await;
+            self.needs_config_refresh = false;
+        }
+        
         if self.connected && self.last_refresh.elapsed() >= self.refresh_interval {
             self.send_message(ClientMessage::GetStatus).await;
             self.send_message(ClientMessage::GetStats).await;
@@ -219,7 +215,6 @@ impl App {
         self.messages.push(StatusMessage {
             text: text.to_string(),
             is_error,
-            timestamp: Instant::now(),
         });
         
         // Keep only last 10 messages

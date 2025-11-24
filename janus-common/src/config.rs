@@ -115,18 +115,30 @@ pub struct BackendServer {
     pub backup: bool,
 }
 
-/// Load balancing strategies
+/// Load balancing strategies for distributing requests across backend servers
+/// 
+/// # Examples
+/// 
+/// ```toml
+/// [upstreams.backend]
+/// servers = [
+///     { address = "localhost:3001", weight = 1 },
+///     { address = "localhost:3002", weight = 2 }
+/// ]
+/// load_balancing = "round_robin"  # or "least_connections", "random", "ip_hash"
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LoadBalancing {
-    /// Round-robin distribution
+    /// Round-robin distribution - requests are distributed sequentially to each server
     #[default]
     RoundRobin,
-    /// Least connections
+    /// Least connections - requests go to the server with fewest active connections
     LeastConnections,
-    /// Random selection
+    /// Random selection - requests are randomly distributed to servers
     Random,
-    /// IP hash for session persistence
+    /// IP hash for session persistence - the same client IP always goes to the same server
+    /// This is useful for applications that require sticky sessions
     IpHash,
 }
 

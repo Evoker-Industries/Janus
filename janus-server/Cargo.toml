@@ -26,4 +26,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
-notify = "6.1"
+notify = { workspace = true }
