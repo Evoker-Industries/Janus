@@ -10,19 +10,19 @@ pub struct JanusConfig {
     /// Global server settings
     #[serde(default)]
     pub server: ServerConfig,
-    
+
     /// Management API settings
     #[serde(default)]
     pub management: ManagementConfig,
-    
+
     /// Upstream servers for reverse proxy
     #[serde(default)]
     pub upstreams: HashMap<String, UpstreamConfig>,
-    
+
     /// Route definitions
     #[serde(default)]
     pub routes: Vec<RouteConfig>,
-    
+
     /// Static file serving configuration
     #[serde(default)]
     pub static_files: Vec<StaticFileConfig>,
@@ -34,15 +34,15 @@ pub struct ServerConfig {
     /// Address to bind to
     #[serde(default = "default_bind_address")]
     pub bind_address: String,
-    
+
     /// Port to listen on
     #[serde(default = "default_port")]
     pub port: u16,
-    
+
     /// Number of worker threads (0 = auto)
     #[serde(default)]
     pub workers: usize,
-    
+
     /// Enable access logging
     #[serde(default = "default_true")]
     pub access_log: bool,
@@ -65,11 +65,11 @@ pub struct ManagementConfig {
     /// Enable management API
     #[serde(default = "default_true")]
     pub enabled: bool,
-    
+
     /// WebSocket address for management connections
     #[serde(default = "default_management_address")]
     pub address: String,
-    
+
     /// Management port
     #[serde(default = "default_management_port")]
     pub port: u16,
@@ -90,11 +90,11 @@ impl Default for ManagementConfig {
 pub struct UpstreamConfig {
     /// List of backend servers
     pub servers: Vec<BackendServer>,
-    
+
     /// Load balancing strategy
     #[serde(default)]
     pub load_balancing: LoadBalancing,
-    
+
     /// Health check configuration
     #[serde(default)]
     pub health_check: Option<HealthCheckConfig>,
@@ -105,20 +105,20 @@ pub struct UpstreamConfig {
 pub struct BackendServer {
     /// Server address (host:port or URL)
     pub address: String,
-    
+
     /// Server weight for weighted load balancing
     #[serde(default = "default_weight")]
     pub weight: u32,
-    
+
     /// Whether this server is a backup
     #[serde(default)]
     pub backup: bool,
 }
 
 /// Load balancing strategies for distributing requests across backend servers
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```toml
 /// [upstreams.backend]
 /// servers = [
@@ -148,11 +148,11 @@ pub struct HealthCheckConfig {
     /// Interval between health checks in seconds
     #[serde(default = "default_health_interval")]
     pub interval: u64,
-    
+
     /// Health check timeout in seconds
     #[serde(default = "default_health_timeout")]
     pub timeout: u64,
-    
+
     /// Path to check
     #[serde(default = "default_health_path")]
     pub path: String,
@@ -163,22 +163,22 @@ pub struct HealthCheckConfig {
 pub struct RouteConfig {
     /// Route path pattern (supports wildcards)
     pub path: String,
-    
+
     /// HTTP methods to match (empty = all)
     #[serde(default)]
     pub methods: Vec<String>,
-    
+
     /// Upstream name to proxy to
     pub upstream: String,
-    
+
     /// Path rewrite rules
     #[serde(default)]
     pub rewrite: Option<String>,
-    
+
     /// Additional headers to add
     #[serde(default)]
     pub headers: HashMap<String, String>,
-    
+
     /// Request timeout in seconds
     #[serde(default = "default_timeout")]
     pub timeout: u64,
@@ -189,14 +189,14 @@ pub struct RouteConfig {
 pub struct StaticFileConfig {
     /// URL path prefix
     pub path: String,
-    
+
     /// Root directory for static files
     pub root: String,
-    
+
     /// Index file name
     #[serde(default = "default_index")]
     pub index: String,
-    
+
     /// Enable directory listing
     #[serde(default)]
     pub directory_listing: bool,
@@ -254,21 +254,20 @@ impl JanusConfig {
             .map_err(|e| ConfigError::IoError(e.to_string()))?;
         Self::from_toml(&content)
     }
-    
+
     /// Parse configuration from TOML string
     pub fn from_toml(content: &str) -> Result<Self, ConfigError> {
         toml::from_str(content).map_err(|e| ConfigError::ParseError(e.to_string()))
     }
-    
+
     /// Save configuration to a TOML file
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), ConfigError> {
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| ConfigError::SerializeError(e.to_string()))?;
-        std::fs::write(path.as_ref(), content)
-            .map_err(|e| ConfigError::IoError(e.to_string()))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
+        std::fs::write(path.as_ref(), content).map_err(|e| ConfigError::IoError(e.to_string()))?;
         Ok(())
     }
-    
+
     /// Convert to TOML string
     pub fn to_toml(&self) -> Result<String, ConfigError> {
         toml::to_string_pretty(self).map_err(|e| ConfigError::SerializeError(e.to_string()))
@@ -280,13 +279,13 @@ impl JanusConfig {
 pub enum ConfigError {
     #[error("IO error: {0}")]
     IoError(String),
-    
+
     #[error("Parse error: {0}")]
     ParseError(String),
-    
+
     #[error("Serialize error: {0}")]
     SerializeError(String),
-    
+
     #[error("Validation error: {0}")]
     ValidationError(String),
 }
@@ -331,7 +330,7 @@ path = "/"
 root = "/var/www/html"
 index = "index.html"
 "#;
-        
+
         let config = JanusConfig::from_toml(toml).unwrap();
         assert_eq!(config.server.port, 3000);
         assert_eq!(config.server.bind_address, "127.0.0.1");

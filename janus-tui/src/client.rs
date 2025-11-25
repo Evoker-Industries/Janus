@@ -16,10 +16,10 @@ type WsSink = SplitSink<WsStream, Message>;
 pub struct ManagementClient {
     /// Channel to send messages to the WebSocket task
     tx: mpsc::Sender<ClientMessage>,
-    
+
     /// Buffer of received messages
     received: VecDeque<ServerMessage>,
-    
+
     /// Channel to receive messages from the WebSocket task
     rx: mpsc::Receiver<ServerMessage>,
 }
@@ -60,7 +60,7 @@ impl ManagementClient {
         if let Some(msg) = self.received.pop_front() {
             return Some(msg);
         }
-        
+
         // Try to receive from channel
         self.rx.try_recv().ok()
     }
@@ -81,7 +81,7 @@ async fn run_client(
                 debug!("Sending: {}", text);
                 write.send(Message::Text(text)).await?;
             }
-            
+
             // Handle incoming messages
             Some(msg) = read.next() => {
                 match msg {
@@ -112,10 +112,10 @@ async fn run_client(
                     }
                 }
             }
-            
+
             else => break,
         }
     }
-    
+
     Ok(())
 }

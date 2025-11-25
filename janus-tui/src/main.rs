@@ -1,8 +1,8 @@
 //! Janus TUI - Terminal User Interface for managing Janus server
 
 mod app;
-mod ui;
 mod client;
+mod ui;
 
 use anyhow::Result;
 use app::App;

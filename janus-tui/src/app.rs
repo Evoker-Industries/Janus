@@ -2,8 +2,8 @@
 
 use crate::client::ManagementClient;
 use crossterm::event::{KeyCode, KeyEvent};
-use janus_common::{ClientMessage, JanusConfig, ServerMessage, ServerStats, ServerStatus};
 use janus_common::config::{RouteConfig, StaticFileConfig};
+use janus_common::{ClientMessage, JanusConfig, ServerMessage, ServerStats, ServerStatus};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tracing::{debug, error};
@@ -12,51 +12,51 @@ use tracing::{debug, error};
 pub struct App {
     /// Server address
     pub server_addr: String,
-    
+
     /// WebSocket client
     pub client: Option<ManagementClient>,
-    
+
     /// Connection status
     pub connected: bool,
-    
+
     /// Current tab
     pub current_tab: Tab,
-    
+
     /// Server status
     pub status: Option<ServerStatus>,
-    
+
     /// Server configuration
     pub config: Option<JanusConfig>,
-    
+
     /// Server statistics
     pub stats: Option<ServerStats>,
-    
+
     /// Status messages
     pub messages: Vec<StatusMessage>,
-    
+
     /// Selected item in lists
     pub selected_route: usize,
     pub selected_upstream: usize,
     pub selected_static_dir: usize,
-    
+
     /// Edit mode
     pub edit_mode: EditMode,
-    
+
     /// Input buffer for editing
     pub input_buffer: String,
-    
+
     /// New route being created
     pub new_route: NewRoute,
-    
+
     /// New static directory being created
     pub new_static_dir: NewStaticDir,
-    
+
     /// Last refresh time
     pub last_refresh: Instant,
-    
+
     /// Refresh interval
     pub refresh_interval: Duration,
-    
+
     /// Flag to request config refresh
     needs_config_refresh: bool,
 }
@@ -74,9 +74,16 @@ pub enum Tab {
 
 impl Tab {
     pub fn all() -> &'static [Tab] {
-        &[Tab::Status, Tab::Routes, Tab::Upstreams, Tab::Config, Tab::Stats, Tab::Help]
+        &[
+            Tab::Status,
+            Tab::Routes,
+            Tab::Upstreams,
+            Tab::Config,
+            Tab::Stats,
+            Tab::Help,
+        ]
     }
-    
+
     pub fn name(&self) -> &'static str {
         match self {
             Tab::Status => "Status",
@@ -161,7 +168,7 @@ impl App {
                 self.client = Some(client);
                 self.connected = true;
                 self.add_message("Connected to server", false);
-                
+
                 // Request initial data
                 self.send_message(ClientMessage::GetStatus).await;
                 self.send_message(ClientMessage::GetConfig).await;
@@ -196,7 +203,7 @@ impl App {
         } else {
             Vec::new()
         };
-        
+
         // Then handle each message
         for msg in messages {
             self.handle_server_message(msg);
@@ -241,7 +248,7 @@ impl App {
             self.send_message(ClientMessage::GetConfig).await;
             self.needs_config_refresh = false;
         }
-        
+
         if self.connected && self.last_refresh.elapsed() >= self.refresh_interval {
             self.send_message(ClientMessage::GetStatus).await;
             self.send_message(ClientMessage::GetStats).await;
@@ -255,7 +262,7 @@ impl App {
             text: text.to_string(),
             is_error,
         });
-        
+
         // Keep only last 10 messages
         if self.messages.len() > 10 {
             self.messages.remove(0);
@@ -295,15 +302,21 @@ impl App {
             // Tab navigation
             KeyCode::Tab => {
                 let tabs = Tab::all();
-                let current_idx = tabs.iter().position(|&t| t == self.current_tab).unwrap_or(0);
+                let current_idx = tabs
+                    .iter()
+                    .position(|&t| t == self.current_tab)
+                    .unwrap_or(0);
                 self.current_tab = tabs[(current_idx + 1) % tabs.len()];
             }
             KeyCode::BackTab => {
                 let tabs = Tab::all();
-                let current_idx = tabs.iter().position(|&t| t == self.current_tab).unwrap_or(0);
+                let current_idx = tabs
+                    .iter()
+                    .position(|&t| t == self.current_tab)
+                    .unwrap_or(0);
                 self.current_tab = tabs[(current_idx + tabs.len() - 1) % tabs.len()];
             }
-            
+
             // Number keys for direct tab selection
             KeyCode::Char('1') => self.current_tab = Tab::Status,
             KeyCode::Char('2') => self.current_tab = Tab::Routes,
@@ -311,7 +324,7 @@ impl App {
             KeyCode::Char('4') => self.current_tab = Tab::Config,
             KeyCode::Char('5') => self.current_tab = Tab::Stats,
             KeyCode::Char('6') => self.current_tab = Tab::Help,
-            
+
             // Refresh
             KeyCode::Char('r') => {
                 if self.connected {
@@ -321,69 +334,65 @@ impl App {
                     self.add_message("Refreshing...", false);
                 }
             }
-            
+
             // Reconnect
             KeyCode::Char('c') => {
                 if !self.connected {
                     self.connect().await;
                 }
             }
-            
+
             // Reload config
             KeyCode::Char('R') => {
                 if self.connected {
                     self.send_message(ClientMessage::ReloadConfig).await;
                 }
             }
-            
+
             // List navigation
-            KeyCode::Up | KeyCode::Char('k') => {
-                match self.current_tab {
-                    Tab::Routes => {
-                        if self.selected_route > 0 {
-                            self.selected_route -= 1;
-                        }
+            KeyCode::Up | KeyCode::Char('k') => match self.current_tab {
+                Tab::Routes => {
+                    if self.selected_route > 0 {
+                        self.selected_route -= 1;
                     }
-                    Tab::Upstreams => {
-                        if self.selected_upstream > 0 {
-                            self.selected_upstream -= 1;
-                        }
-                    }
-                    Tab::Config => {
-                        if self.selected_static_dir > 0 {
-                            self.selected_static_dir -= 1;
-                        }
-                    }
-                    _ => {}
                 }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                match self.current_tab {
-                    Tab::Routes => {
-                        if let Some(ref config) = self.config {
-                            if self.selected_route < config.routes.len().saturating_sub(1) {
-                                self.selected_route += 1;
-                            }
-                        }
+                Tab::Upstreams => {
+                    if self.selected_upstream > 0 {
+                        self.selected_upstream -= 1;
                     }
-                    Tab::Upstreams => {
-                        if let Some(ref config) = self.config {
-                            if self.selected_upstream < config.upstreams.len().saturating_sub(1) {
-                                self.selected_upstream += 1;
-                            }
-                        }
-                    }
-                    Tab::Config => {
-                        if let Some(ref config) = self.config {
-                            if self.selected_static_dir < config.static_files.len().saturating_sub(1) {
-                                self.selected_static_dir += 1;
-                            }
-                        }
-                    }
-                    _ => {}
                 }
-            }
-            
+                Tab::Config => {
+                    if self.selected_static_dir > 0 {
+                        self.selected_static_dir -= 1;
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Down | KeyCode::Char('j') => match self.current_tab {
+                Tab::Routes => {
+                    if let Some(ref config) = self.config {
+                        if self.selected_route < config.routes.len().saturating_sub(1) {
+                            self.selected_route += 1;
+                        }
+                    }
+                }
+                Tab::Upstreams => {
+                    if let Some(ref config) = self.config {
+                        if self.selected_upstream < config.upstreams.len().saturating_sub(1) {
+                            self.selected_upstream += 1;
+                        }
+                    }
+                }
+                Tab::Config => {
+                    if let Some(ref config) = self.config {
+                        if self.selected_static_dir < config.static_files.len().saturating_sub(1) {
+                            self.selected_static_dir += 1;
+                        }
+                    }
+                }
+                _ => {}
+            },
+
             // Delete selected item
             KeyCode::Char('d') | KeyCode::Delete => {
                 match self.current_tab {
@@ -391,8 +400,10 @@ impl App {
                         if let Some(ref config) = self.config {
                             if let Some(route) = config.routes.get(self.selected_route) {
                                 let path = route.path.clone();
-                                let was_last = self.selected_route == config.routes.len().saturating_sub(1);
-                                self.send_message(ClientMessage::RemoveRoute(path.clone())).await;
+                                let was_last =
+                                    self.selected_route == config.routes.len().saturating_sub(1);
+                                self.send_message(ClientMessage::RemoveRoute(path.clone()))
+                                    .await;
                                 self.send_message(ClientMessage::GetConfig).await;
                                 self.add_message(&format!("Route '{}' removed", path), false);
                                 // Adjust selection after deletion
@@ -407,8 +418,10 @@ impl App {
                             let names: Vec<_> = config.upstreams.keys().collect();
                             if let Some(name) = names.get(self.selected_upstream) {
                                 let name = (*name).clone();
-                                let was_last = self.selected_upstream == config.upstreams.len().saturating_sub(1);
-                                self.send_message(ClientMessage::RemoveUpstream(name.clone())).await;
+                                let was_last = self.selected_upstream
+                                    == config.upstreams.len().saturating_sub(1);
+                                self.send_message(ClientMessage::RemoveUpstream(name.clone()))
+                                    .await;
                                 self.send_message(ClientMessage::GetConfig).await;
                                 self.add_message(&format!("Upstream '{}' removed", name), false);
                                 // Adjust selection after deletion
@@ -421,12 +434,19 @@ impl App {
                     Tab::Config => {
                         // Delete selected static directory
                         if let Some(ref config) = self.config {
-                            if let Some(static_dir) = config.static_files.get(self.selected_static_dir) {
+                            if let Some(static_dir) =
+                                config.static_files.get(self.selected_static_dir)
+                            {
                                 let path = static_dir.path.clone();
-                                let was_last = self.selected_static_dir == config.static_files.len().saturating_sub(1);
-                                self.send_message(ClientMessage::RemoveStaticDir(path.clone())).await;
+                                let was_last = self.selected_static_dir
+                                    == config.static_files.len().saturating_sub(1);
+                                self.send_message(ClientMessage::RemoveStaticDir(path.clone()))
+                                    .await;
                                 self.send_message(ClientMessage::GetConfig).await;
-                                self.add_message(&format!("Static directory '{}' removed", path), false);
+                                self.add_message(
+                                    &format!("Static directory '{}' removed", path),
+                                    false,
+                                );
                                 // Adjust selection after deletion
                                 if was_last && self.selected_static_dir > 0 {
                                     self.selected_static_dir -= 1;
@@ -437,7 +457,7 @@ impl App {
                     _ => {}
                 }
             }
-            
+
             // Add new item
             KeyCode::Char('a') => {
                 if self.connected {
@@ -446,12 +466,18 @@ impl App {
                             // Check if there are any upstreams to route to
                             if let Some(ref config) = self.config {
                                 if config.upstreams.is_empty() {
-                                    self.add_message("Cannot add route: no upstreams configured", true);
+                                    self.add_message(
+                                        "Cannot add route: no upstreams configured",
+                                        true,
+                                    );
                                 } else {
                                     self.new_route = NewRoute::default();
                                     self.input_buffer.clear();
                                     self.edit_mode = EditMode::AddRoutePath;
-                                    self.add_message("Enter route path (e.g., /api/* or /health)", false);
+                                    self.add_message(
+                                        "Enter route path (e.g., /api/* or /health)",
+                                        false,
+                                    );
                                 }
                             }
                         }
@@ -460,24 +486,30 @@ impl App {
                             self.new_static_dir = NewStaticDir::default();
                             self.input_buffer.clear();
                             self.edit_mode = EditMode::AddStaticPath;
-                            self.add_message("Enter URL path for static files (e.g., /static/)", false);
+                            self.add_message(
+                                "Enter URL path for static files (e.g., /static/)",
+                                false,
+                            );
                         }
                         _ => {}
                     }
                 }
             }
-            
+
             // Edit port (on Config tab)
             KeyCode::Char('p') => {
                 if self.current_tab == Tab::Config && self.connected {
                     if let Some(ref config) = self.config {
                         self.input_buffer = config.server.port.to_string();
                         self.edit_mode = EditMode::EditServerPort;
-                        self.add_message(&format!("Enter new server port (current: {})", config.server.port), false);
+                        self.add_message(
+                            &format!("Enter new server port (current: {})", config.server.port),
+                            false,
+                        );
                     }
                 }
             }
-            
+
             _ => {}
         }
     }
@@ -493,11 +525,21 @@ impl App {
                 self.new_route.path = self.input_buffer.clone();
                 self.input_buffer.clear();
                 self.edit_mode = EditMode::AddRouteUpstream;
-                
+
                 // Show available upstreams
                 if let Some(ref config) = self.config {
                     let upstreams: Vec<_> = config.upstreams.keys().collect();
-                    self.add_message(&format!("Enter upstream name. Available: {}", upstreams.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")), false);
+                    self.add_message(
+                        &format!(
+                            "Enter upstream name. Available: {}",
+                            upstreams
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        false,
+                    );
                 }
             }
             EditMode::AddRouteUpstream => {
@@ -508,7 +550,10 @@ impl App {
                 // Validate upstream exists
                 if let Some(ref config) = self.config {
                     if !config.upstreams.contains_key(&self.input_buffer) {
-                        self.add_message(&format!("Upstream '{}' not found", self.input_buffer), true);
+                        self.add_message(
+                            &format!("Upstream '{}' not found", self.input_buffer),
+                            true,
+                        );
                         return;
                     }
                 }
@@ -520,7 +565,7 @@ impl App {
             EditMode::AddRouteTimeout => {
                 let timeout: u64 = self.input_buffer.parse().unwrap_or(30);
                 self.new_route.timeout = timeout.to_string();
-                
+
                 // Create and send the route
                 let route = RouteConfig {
                     path: self.new_route.path.clone(),
@@ -530,11 +575,14 @@ impl App {
                     headers: HashMap::new(),
                     timeout,
                 };
-                
+
                 self.send_message(ClientMessage::AddRoute(route)).await;
                 self.send_message(ClientMessage::GetConfig).await;
-                self.add_message(&format!("Route '{}' added successfully", self.new_route.path), false);
-                
+                self.add_message(
+                    &format!("Route '{}' added successfully", self.new_route.path),
+                    false,
+                );
+
                 // Reset state
                 self.edit_mode = EditMode::None;
                 self.input_buffer.clear();
@@ -548,10 +596,11 @@ impl App {
                         return;
                     }
                 };
-                
-                self.send_message(ClientMessage::UpdateServerPort(port)).await;
+
+                self.send_message(ClientMessage::UpdateServerPort(port))
+                    .await;
                 self.send_message(ClientMessage::GetConfig).await;
-                
+
                 // Reset state
                 self.edit_mode = EditMode::None;
                 self.input_buffer.clear();
@@ -572,7 +621,7 @@ impl App {
                     return;
                 }
                 self.new_static_dir.root = self.input_buffer.clone();
-                
+
                 // Create and send the static config
                 let static_config = StaticFileConfig {
                     path: self.new_static_dir.path.clone(),
@@ -580,11 +629,18 @@ impl App {
                     index: "index.html".to_string(),
                     directory_listing: true,
                 };
-                
-                self.send_message(ClientMessage::AddStaticDir(static_config)).await;
+
+                self.send_message(ClientMessage::AddStaticDir(static_config))
+                    .await;
                 self.send_message(ClientMessage::GetConfig).await;
-                self.add_message(&format!("Static directory '{}' -> '{}' added", self.new_static_dir.path, self.new_static_dir.root), false);
-                
+                self.add_message(
+                    &format!(
+                        "Static directory '{}' -> '{}' added",
+                        self.new_static_dir.path, self.new_static_dir.root
+                    ),
+                    false,
+                );
+
                 // Reset state
                 self.edit_mode = EditMode::None;
                 self.input_buffer.clear();
@@ -593,7 +649,7 @@ impl App {
             EditMode::None => {}
         }
     }
-    
+
     /// Get the current edit prompt
     pub fn get_edit_prompt(&self) -> &str {
         match self.edit_mode {

@@ -20,7 +20,7 @@ pub async fn run_management_server(state: Arc<AppState>) -> Result<()> {
 
     while let Ok((stream, peer_addr)) = listener.accept().await {
         let state = state.clone();
-        
+
         tokio::spawn(async move {
             match accept_async(stream).await {
                 Ok(ws_stream) => {
@@ -49,21 +49,19 @@ async fn handle_connection(
 
     while let Some(msg) = read.next().await {
         match msg {
-            Ok(Message::Text(text)) => {
-                match serde_json::from_str::<ClientMessage>(&text) {
-                    Ok(client_msg) => {
-                        let response = handle_message(client_msg, &state).await;
-                        let response_text = serde_json::to_string(&response)?;
-                        write.send(Message::Text(response_text)).await?;
-                    }
-                    Err(e) => {
-                        warn!("Invalid message format: {}", e);
-                        let error = ServerMessage::Error(format!("Invalid message: {}", e));
-                        let response_text = serde_json::to_string(&error)?;
-                        write.send(Message::Text(response_text)).await?;
-                    }
+            Ok(Message::Text(text)) => match serde_json::from_str::<ClientMessage>(&text) {
+                Ok(client_msg) => {
+                    let response = handle_message(client_msg, &state).await;
+                    let response_text = serde_json::to_string(&response)?;
+                    write.send(Message::Text(response_text)).await?;
                 }
-            }
+                Err(e) => {
+                    warn!("Invalid message format: {}", e);
+                    let error = ServerMessage::Error(format!("Invalid message: {}", e));
+                    let response_text = serde_json::to_string(&error)?;
+                    write.send(Message::Text(response_text)).await?;
+                }
+            },
             Ok(Message::Close(_)) => {
                 debug!("Client initiated close");
                 break;
@@ -90,7 +88,7 @@ async fn handle_message(msg: ClientMessage, state: &Arc<AppState>) -> ServerMess
         ClientMessage::GetStatus => {
             let config = state.config.read().await;
             let stats = state.stats.read().await;
-            
+
             ServerMessage::Status(ServerStatus {
                 running: true,
                 uptime_secs: state.start_time.elapsed().as_secs(),
@@ -101,12 +99,12 @@ async fn handle_message(msg: ClientMessage, state: &Arc<AppState>) -> ServerMess
                 listen_address: format!("{}:{}", config.server.bind_address, config.server.port),
             })
         }
-        
+
         ClientMessage::GetConfig => {
             let config = state.config.read().await;
             ServerMessage::Config(config.clone())
         }
-        
+
         ClientMessage::UpdateConfig(new_config) => {
             // Validate and update configuration
             match validate_and_update_config(state, new_config).await {
@@ -121,151 +119,168 @@ async fn handle_message(msg: ClientMessage, state: &Arc<AppState>) -> ServerMess
                 Err(e) => ServerMessage::Error(e.to_string()),
             }
         }
-        
+
         ClientMessage::AddRoute(route) => {
             let mut config = state.config.write().await;
-            
+
             // Check if upstream exists
             if !config.upstreams.contains_key(&route.upstream) {
                 return ServerMessage::Error(format!("Upstream '{}' not found", route.upstream));
             }
-            
+
             // Check for duplicate route
             if config.routes.iter().any(|r| r.path == route.path) {
                 return ServerMessage::Error(format!("Route '{}' already exists", route.path));
             }
-            
+
             config.routes.push(route);
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success("Route added".to_string())
         }
-        
+
         ClientMessage::RemoveRoute(path) => {
             let mut config = state.config.write().await;
             let initial_len = config.routes.len();
             config.routes.retain(|r| r.path != path);
-            
+
             if config.routes.len() == initial_len {
                 return ServerMessage::Error(format!("Route '{}' not found", path));
             }
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success("Route removed".to_string())
         }
-        
-        ClientMessage::UpdateUpstream { name, config: upstream_config } => {
+
+        ClientMessage::UpdateUpstream {
+            name,
+            config: upstream_config,
+        } => {
             let mut config = state.config.write().await;
             config.upstreams.insert(name.clone(), upstream_config);
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success(format!("Upstream '{}' updated", name))
         }
-        
+
         ClientMessage::RemoveUpstream(name) => {
             let mut config = state.config.write().await;
-            
+
             // Check if any routes use this upstream
             if config.routes.iter().any(|r| r.upstream == name) {
-                return ServerMessage::Error(format!("Cannot remove upstream '{}': still in use by routes", name));
+                return ServerMessage::Error(format!(
+                    "Cannot remove upstream '{}': still in use by routes",
+                    name
+                ));
             }
-            
+
             if config.upstreams.remove(&name).is_none() {
                 return ServerMessage::Error(format!("Upstream '{}' not found", name));
             }
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success(format!("Upstream '{}' removed", name))
         }
-        
+
         ClientMessage::UpdateServerPort(port) => {
             let mut config = state.config.write().await;
             let old_port = config.server.port;
             config.server.port = port;
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
-            ServerMessage::Success(format!("Server port changed from {} to {}. Restart server to apply.", old_port, port))
+
+            ServerMessage::Success(format!(
+                "Server port changed from {} to {}. Restart server to apply.",
+                old_port, port
+            ))
         }
-        
+
         ClientMessage::UpdateBindAddress(address) => {
             let mut config = state.config.write().await;
             let old_address = config.server.bind_address.clone();
             config.server.bind_address = address.clone();
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
-            ServerMessage::Success(format!("Bind address changed from {} to {}. Restart server to apply.", old_address, address))
+
+            ServerMessage::Success(format!(
+                "Bind address changed from {} to {}. Restart server to apply.",
+                old_address, address
+            ))
         }
-        
+
         ClientMessage::AddStaticDir(static_config) => {
             let mut config = state.config.write().await;
-            
+
             // Check for duplicate path
-            if config.static_files.iter().any(|s| s.path == static_config.path) {
-                return ServerMessage::Error(format!("Static directory '{}' already exists", static_config.path));
+            if config
+                .static_files
+                .iter()
+                .any(|s| s.path == static_config.path)
+            {
+                return ServerMessage::Error(format!(
+                    "Static directory '{}' already exists",
+                    static_config.path
+                ));
             }
-            
+
             config.static_files.push(static_config.clone());
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success(format!("Static directory '{}' added", static_config.path))
         }
-        
+
         ClientMessage::RemoveStaticDir(path) => {
             let mut config = state.config.write().await;
             let initial_len = config.static_files.len();
             config.static_files.retain(|s| s.path != path);
-            
+
             if config.static_files.len() == initial_len {
                 return ServerMessage::Error(format!("Static directory '{}' not found", path));
             }
-            
+
             // Save to file
             if let Err(e) = config.save(&state.config_path) {
                 return ServerMessage::Error(format!("Failed to save config: {}", e));
             }
-            
+
             ServerMessage::Success(format!("Static directory '{}' removed", path))
         }
-        
-        ClientMessage::ReloadConfig => {
-            match crate::reload::reload_config(state).await {
-                Ok(()) => ServerMessage::Success("Configuration reloaded from file".to_string()),
-                Err(e) => ServerMessage::Error(format!("Failed to reload config: {}", e)),
-            }
-        }
-        
+
+        ClientMessage::ReloadConfig => match crate::reload::reload_config(state).await {
+            Ok(()) => ServerMessage::Success("Configuration reloaded from file".to_string()),
+            Err(e) => ServerMessage::Error(format!("Failed to reload config: {}", e)),
+        },
+
         ClientMessage::GetStats => {
             let stats = state.stats.read().await;
             let uptime = state.start_time.elapsed().as_secs_f64();
-            
+
             ServerMessage::Stats(ServerStats {
                 total_requests: stats.total_requests,
                 bytes_received: stats.bytes_received,
@@ -279,7 +294,7 @@ async fn handle_message(msg: ClientMessage, state: &Arc<AppState>) -> ServerMess
                 upstream_stats: std::collections::HashMap::new(),
             })
         }
-        
+
         ClientMessage::Shutdown => {
             // In a real implementation, this would trigger graceful shutdown
             ServerMessage::ShuttingDown
@@ -292,13 +307,17 @@ async fn validate_and_update_config(state: &Arc<AppState>, new_config: JanusConf
     // Validate routes reference existing upstreams
     for route in &new_config.routes {
         if !new_config.upstreams.contains_key(&route.upstream) {
-            anyhow::bail!("Route '{}' references non-existent upstream '{}'", route.path, route.upstream);
+            anyhow::bail!(
+                "Route '{}' references non-existent upstream '{}'",
+                route.path,
+                route.upstream
+            );
         }
     }
-    
+
     // Update configuration
     let mut config = state.config.write().await;
     *config = new_config;
-    
+
     Ok(())
 }

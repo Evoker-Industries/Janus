@@ -1,7 +1,7 @@
 //! HTTP Server implementation
 
-use crate::AppState;
 use crate::proxy::ProxyHandler;
+use crate::AppState;
 use anyhow::Result;
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
@@ -19,8 +19,8 @@ use tracing::{debug, error, info, warn};
 /// Run the HTTP server
 pub async fn run_server(state: Arc<AppState>) -> Result<()> {
     let config = state.config.read().await;
-    let addr: SocketAddr = format!("{}:{}", config.server.bind_address, config.server.port)
-        .parse()?;
+    let addr: SocketAddr =
+        format!("{}:{}", config.server.bind_address, config.server.port).parse()?;
     drop(config);
 
     let listener = TcpListener::bind(addr).await?;
@@ -37,10 +37,7 @@ pub async fn run_server(state: Arc<AppState>) -> Result<()> {
                 async move { handle_request(state, req, remote_addr).await }
             });
 
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service)
-                .await
-            {
+            if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
                 debug!("Connection error: {:?}", err);
             }
         });
@@ -64,9 +61,15 @@ async fn handle_request(
     }
 
     let config = state.config.read().await;
-    
+
     if config.server.access_log {
-        info!("{} {} {} - {}", remote_addr.ip(), method, path, uri.query().unwrap_or(""));
+        info!(
+            "{} {} {} - {}",
+            remote_addr.ip(),
+            method,
+            path,
+            uri.query().unwrap_or("")
+        );
     }
 
     // Try to match static file routes first
@@ -78,9 +81,9 @@ async fn handle_request(
             } else {
                 file_path.trim_start_matches('/')
             };
-            
+
             let full_path = std::path::Path::new(&static_config.root).join(file_path);
-            
+
             if full_path.is_file() {
                 match tokio::fs::read(&full_path).await {
                     Ok(contents) => {
@@ -90,7 +93,7 @@ async fn handle_request(
                             .header("Content-Type", content_type)
                             .body(full_body(contents))
                             .unwrap();
-                        
+
                         update_status_stats(&state, StatusCode::OK).await;
                         return Ok(response);
                     }
@@ -105,7 +108,7 @@ async fn handle_request(
                     .header("Content-Type", "text/html")
                     .body(full_body(listing.into_bytes()))
                     .unwrap();
-                
+
                 update_status_stats(&state, StatusCode::OK).await;
                 return Ok(response);
             }
@@ -127,7 +130,7 @@ async fn handle_request(
             if let Some(upstream) = config.upstreams.get(&route.upstream) {
                 let proxy = ProxyHandler::new(upstream.clone(), route.clone());
                 drop(config);
-                
+
                 match proxy.forward(req, remote_addr).await {
                     Ok(response) => {
                         let status = response.status();
@@ -142,11 +145,14 @@ async fn handle_request(
                     }
                 }
             } else {
-                warn!("Upstream '{}' not found for route '{}'", route.upstream, route.path);
+                warn!(
+                    "Upstream '{}' not found for route '{}'",
+                    route.upstream, route.path
+                );
             }
         }
     }
-    
+
     drop(config);
 
     // No route matched - return 404
@@ -208,7 +214,7 @@ fn guess_content_type(path: &std::path::Path) -> &'static str {
 /// Generate directory listing HTML
 async fn generate_directory_listing(dir: &std::path::Path, url_path: &str) -> String {
     let mut entries = Vec::new();
-    
+
     if let Ok(mut read_dir) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = read_dir.next_entry().await {
             if let Ok(name) = entry.file_name().into_string() {
@@ -217,15 +223,13 @@ async fn generate_directory_listing(dir: &std::path::Path, url_path: &str) -> St
             }
         }
     }
-    
-    entries.sort_by(|a, b| {
-        match (a.1, b.1) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.0.cmp(&b.0),
-        }
+
+    entries.sort_by(|a, b| match (a.1, b.1) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.0.cmp(&b.0),
     });
-    
+
     let mut html = format!(
         r#"<!DOCTYPE html>
 <html>
@@ -246,12 +250,12 @@ async fn generate_directory_listing(dir: &std::path::Path, url_path: &str) -> St
 "#,
         url_path, url_path
     );
-    
+
     // Parent directory link
     if url_path != "/" {
         html.push_str(r#"        <li><a href="..">..</a></li>\n"#);
     }
-    
+
     for (name, is_dir) in entries {
         let class = if is_dir { "dir" } else { "file" };
         let suffix = if is_dir { "/" } else { "" };
@@ -260,7 +264,7 @@ async fn generate_directory_listing(dir: &std::path::Path, url_path: &str) -> St
             class, name, suffix, name, suffix
         ));
     }
-    
+
     html.push_str(
         r#"    </ul>
     <hr>
@@ -268,13 +272,15 @@ async fn generate_directory_listing(dir: &std::path::Path, url_path: &str) -> St
 </body>
 </html>"#,
     );
-    
+
     html
 }
 
 /// Create a full body response
 fn full_body(data: Vec<u8>) -> BoxBody<Bytes, Infallible> {
-    Full::new(Bytes::from(data)).map_err(|_| unreachable!()).boxed()
+    Full::new(Bytes::from(data))
+        .map_err(|_| unreachable!())
+        .boxed()
 }
 
 /// Create an error response
@@ -294,7 +300,7 @@ fn error_response(status: StatusCode, message: &str) -> Response<BoxBody<Bytes, 
         status.as_u16(),
         message
     );
-    
+
     Response::builder()
         .status(status)
         .header("Content-Type", "text/html")

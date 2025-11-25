@@ -11,7 +11,7 @@ use tracing::{error, info, warn};
 /// Watch configuration file for changes and reload automatically
 pub async fn watch_config(state: Arc<AppState>) -> Result<()> {
     let config_path = state.config_path.clone();
-    
+
     if !config_path.exists() {
         warn!("Config file does not exist, skipping file watcher");
         return Ok(());
@@ -65,14 +65,14 @@ pub async fn watch_config(state: Arc<AppState>) -> Result<()> {
 /// Reload configuration from file
 pub async fn reload_config(state: &Arc<AppState>) -> Result<()> {
     let new_config = JanusConfig::load(&state.config_path)?;
-    
+
     // Validate the new configuration
     validate_config(&new_config)?;
-    
+
     // Update the configuration
     let mut config = state.config.write().await;
     *config = new_config;
-    
+
     Ok(())
 }
 
@@ -82,24 +82,28 @@ fn validate_config(config: &JanusConfig) -> Result<()> {
     if config.server.port == 0 {
         anyhow::bail!("Server port cannot be 0");
     }
-    
+
     if config.management.enabled && config.management.port == 0 {
         anyhow::bail!("Management port cannot be 0");
     }
-    
+
     // Validate routes reference existing upstreams
     for route in &config.routes {
         if !config.upstreams.contains_key(&route.upstream) {
-            anyhow::bail!("Route '{}' references non-existent upstream '{}'", route.path, route.upstream);
+            anyhow::bail!(
+                "Route '{}' references non-existent upstream '{}'",
+                route.path,
+                route.upstream
+            );
         }
     }
-    
+
     // Validate upstreams have at least one server
     for (name, upstream) in &config.upstreams {
         if upstream.servers.is_empty() {
             anyhow::bail!("Upstream '{}' has no servers configured", name);
         }
     }
-    
+
     Ok(())
 }

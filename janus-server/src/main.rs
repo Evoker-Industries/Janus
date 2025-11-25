@@ -1,17 +1,17 @@
 //! Janus Server - Web server and reverse proxy with live reloading
 
-mod proxy;
-mod server;
 mod management;
+mod proxy;
 mod reload;
+mod server;
 mod stats;
 
 use anyhow::Result;
+use janus_common::JanusConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, error};
-use janus_common::JanusConfig;
+use tracing::{error, info};
 
 /// Shared application state
 pub struct AppState {
@@ -26,8 +26,7 @@ async fn main() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("janus=info".parse()?)
+            tracing_subscriber::EnvFilter::from_default_env().add_directive("janus=info".parse()?),
         )
         .init();
 

@@ -35,26 +35,28 @@ impl ProxyHandler {
     ) -> Result<Response<BoxBody<Bytes, Infallible>>> {
         // Select backend server
         let backend = self.select_backend()?;
-        
+
         // Build upstream URL
         let path = req.uri().path();
-        let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
-        
+        let query = req
+            .uri()
+            .query()
+            .map(|q| format!("?{}", q))
+            .unwrap_or_default();
+
         // Apply path rewrite if configured
         let upstream_path = if let Some(ref rewrite) = self.route.rewrite {
             apply_rewrite(path, &self.route.path, rewrite)
         } else {
             path.to_string()
         };
-        
+
         let upstream_url = format!("http://{}{}{}", backend, upstream_path, query);
         debug!("Proxying to {}", upstream_url);
 
         // Build request to upstream
         let method = req.method().clone();
-        let mut builder = Request::builder()
-            .method(method)
-            .uri(&upstream_url);
+        let mut builder = Request::builder().method(method).uri(&upstream_url);
 
         // Copy headers (except host)
         for (name, value) in req.headers() {
@@ -78,28 +80,33 @@ impl ProxyHandler {
         let upstream_req = builder.body(body)?;
 
         // Create HTTP client and send request
-        let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build_http();
+        let client =
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build_http();
 
         let timeout = std::time::Duration::from_secs(self.route.timeout);
-        
+
         match tokio::time::timeout(timeout, client.request(upstream_req)).await {
             Ok(Ok(response)) => {
                 let status = response.status();
                 let headers = response.headers().clone();
                 let body_bytes = response.collect().await?.to_bytes();
-                
+
                 let mut builder = Response::builder().status(status);
                 for (name, value) in headers {
                     if let Some(name) = name {
                         builder = builder.header(name, value);
                     }
                 }
-                
+
                 let response = builder
-                    .body(Full::new(body_bytes).map_err(|_: Infallible| unreachable!()).boxed())
+                    .body(
+                        Full::new(body_bytes)
+                            .map_err(|_: Infallible| unreachable!())
+                            .boxed(),
+                    )
                     .unwrap();
-                
+
                 Ok(response)
             }
             Ok(Err(e)) => {
@@ -108,27 +115,26 @@ impl ProxyHandler {
             }
             Err(_) => {
                 error!("Upstream request timed out");
-                Ok(error_response(StatusCode::GATEWAY_TIMEOUT, "Gateway Timeout"))
+                Ok(error_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "Gateway Timeout",
+                ))
             }
         }
     }
 
     /// Select a backend server based on load balancing strategy
     fn select_backend(&self) -> Result<&str> {
-        let servers: Vec<_> = self.upstream.servers.iter()
-            .filter(|s| !s.backup)
-            .collect();
+        let servers: Vec<_> = self.upstream.servers.iter().filter(|s| !s.backup).collect();
 
         if servers.is_empty() {
             // Fall back to backup servers
-            let backups: Vec<_> = self.upstream.servers.iter()
-                .filter(|s| s.backup)
-                .collect();
-            
+            let backups: Vec<_> = self.upstream.servers.iter().filter(|s| s.backup).collect();
+
             if backups.is_empty() {
                 anyhow::bail!("No backend servers available");
             }
-            
+
             return Ok(&backups[0].address);
         }
 
@@ -182,10 +188,14 @@ fn error_response(status: StatusCode, message: &str) -> Response<BoxBody<Bytes, 
         status.as_u16(),
         message
     );
-    
+
     Response::builder()
         .status(status)
         .header("Content-Type", "text/html")
-        .body(Full::new(Bytes::from(body)).map_err(|_: Infallible| unreachable!()).boxed())
+        .body(
+            Full::new(Bytes::from(body))
+                .map_err(|_: Infallible| unreachable!())
+                .boxed(),
+        )
         .unwrap()
 }
