@@ -46,11 +46,15 @@ async fn main() -> Result<()> {
             "-d" | "--debug" => {
                 debug_mode = true;
             }
+            _ if arg.starts_with('-') => {
+                eprintln!("error: unknown option: {}", arg);
+                eprintln!();
+                print_help();
+                std::process::exit(1);
+            }
             _ => {
                 // Assume non-flag arguments are the server address
-                if !arg.starts_with('-') {
-                    server_addr = arg.clone();
-                }
+                server_addr = arg.clone();
             }
         }
     }
