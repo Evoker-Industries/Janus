@@ -1,0 +1,49 @@
+[workspace]
+members = [
+    "janus-server",
+    "janus-tui",
+    "janus-common",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Janus Contributors"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# HTTP
+hyper = { version = "1.1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# TUI
+ratatui = "0.26"
+crossterm = "0.27"
+
+# IPC
+tokio-tungstenite = "0.21"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+futures = "0.3"
+bytes = "1.5"
+
+# File watching
+notify = "6.1"

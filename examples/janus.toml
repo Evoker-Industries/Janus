@@ -1,0 +1,33 @@
+# Janus Example Configuration
+
+[server]
+bind_address = "0.0.0.0"
+port = 8080
+workers = 0
+access_log = true
+
+[management]
+enabled = true
+address = "127.0.0.1"
+port = 9090
+
+# Example upstream configuration
+[upstreams.example_backend]
+servers = [
+    { address = "httpbin.org:80", weight = 1 }
+]
+load_balancing = "round_robin"
+
+# Example routes
+[[routes]]
+path = "/api/*"
+methods = []
+upstream = "example_backend"
+timeout = 30
+
+# Example static files configuration
+[[static_files]]
+path = "/static/"
+root = "/tmp/janus-static"
+index = "index.html"
+directory_listing = true
