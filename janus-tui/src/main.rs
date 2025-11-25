@@ -15,18 +15,62 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use tracing::error;
 
+/// Print help message and exit
+fn print_help() {
+    println!("janus-tui - Terminal User Interface for managing Janus server");
+    println!();
+    println!("USAGE:");
+    println!("    janus-tui [OPTIONS] [SERVER_ADDR]");
+    println!();
+    println!("ARGS:");
+    println!("    <SERVER_ADDR>    Server address to connect to [default: 127.0.0.1:9090]");
+    println!();
+    println!("OPTIONS:");
+    println!("    -d, --debug      Enable debug logging to janus-tui.log");
+    println!("    -h, --help       Print help information");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging to file (not stdout, as we're using the terminal)
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter("janus_tui=debug")
-        .init();
-
     // Parse command line arguments
-    let server_addr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:9090".to_string());
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut debug_mode = false;
+    let mut server_addr = "127.0.0.1:9090".to_string();
+
+    for arg in &args {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                print_help();
+                return Ok(());
+            }
+            "-d" | "--debug" => {
+                debug_mode = true;
+            }
+            _ => {
+                // Assume non-flag arguments are the server address
+                if !arg.starts_with('-') {
+                    server_addr = arg.clone();
+                }
+            }
+        }
+    }
+
+    // Initialize logging - write to file when debug mode is enabled
+    // We can't use stderr since the TUI uses the terminal in raw mode
+    if debug_mode {
+        let log_file = std::fs::File::create("janus-tui.log")?;
+        tracing_subscriber::fmt()
+            .with_writer(log_file)
+            .with_env_filter("janus_tui=debug")
+            .with_ansi(false)
+            .init();
+    } else {
+        // When not in debug mode, discard logs by using a no-op subscriber
+        tracing_subscriber::fmt()
+            .with_writer(std::io::sink)
+            .with_env_filter("janus_tui=warn")
+            .init();
+    }
 
     // Setup terminal
     enable_raw_mode()?;
