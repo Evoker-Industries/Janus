@@ -256,7 +256,7 @@ fn draw_upstreams(f: &mut Frame, app: &App, area: Rect) {
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Upstreams (j/k to navigate, d to delete)"),
+            .title("Upstreams (a: add, d: delete, j/k: navigate)"),
     );
 
     f.render_widget(list, area);
@@ -489,6 +489,10 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::raw("  a              - Add new route"),
         Line::raw("  d / Delete     - Delete selected route"),
         Line::raw(""),
+        Line::styled("Upstreams Tab", Style::default().add_modifier(Modifier::BOLD)),
+        Line::raw("  a              - Add new upstream"),
+        Line::raw("  d / Delete     - Delete selected upstream"),
+        Line::raw(""),
         Line::styled("Config Tab", Style::default().add_modifier(Modifier::BOLD)),
         Line::raw("  p              - Edit server port"),
         Line::raw("  a              - Add static directory"),
@@ -500,7 +504,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::raw(""),
         Line::styled("Notes", Style::default().add_modifier(Modifier::BOLD)),
         Line::raw("  Port changes require server restart to take effect."),
-        Line::raw("  Route and static directory changes apply immediately."),
+        Line::raw("  Route, upstream, and static directory changes apply immediately."),
     ];
 
     let paragraph = Paragraph::new(help_text)
@@ -535,11 +539,36 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 /// Draw footer
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let footer = if app.is_editing() {
-        Paragraph::new(format!("{}{}_", app.get_edit_prompt(), app.input_buffer))
-            .style(Style::default().fg(Color::Yellow))
+        if let Some((options, selected)) = app.get_dropdown_options() {
+            // Render dropdown menu
+            let options_display: Vec<Span> = options
+                .iter()
+                .enumerate()
+                .flat_map(|(i, opt)| {
+                    let style = if i == selected {
+                        Style::default().fg(Color::Black).bg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    vec![
+                        Span::styled(format!(" {} ", opt), style),
+                        Span::raw(" "),
+                    ]
+                })
+                .collect();
+            
+            Paragraph::new(Line::from(
+                std::iter::once(Span::styled(app.get_edit_prompt(), Style::default().fg(Color::Yellow)))
+                    .chain(options_display)
+                    .collect::<Vec<_>>()
+            ))
+        } else {
+            Paragraph::new(format!("{}{}_", app.get_edit_prompt(), app.input_buffer))
+                .style(Style::default().fg(Color::Yellow))
+        }
     } else {
         Paragraph::new(
-            "Press 'q' to quit | Tab to switch views | 'r' to refresh | 'a' to add route",
+            "Press 'q' to quit | Tab to switch views | 'r' to refresh | 'a' to add",
         )
         .style(Style::default().fg(Color::DarkGray))
     };
