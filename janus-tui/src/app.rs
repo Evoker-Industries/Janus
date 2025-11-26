@@ -751,7 +751,15 @@ impl App {
                 self.add_message("Enter server weight (default: 1)", false);
             }
             EditMode::AddUpstreamWeight => {
-                let weight: u32 = self.input_buffer.parse().unwrap_or(1);
+                let weight: u32 = match self.input_buffer.parse() {
+                    Ok(w) if w > 0 => w,
+                    _ => {
+                        if !self.input_buffer.is_empty() {
+                            self.add_message("Invalid weight, using default value of 1", false);
+                        }
+                        1
+                    }
+                };
                 self.new_upstream.server_weight = weight;
                 self.new_upstream.lb_selection = 0; // Default to round_robin
                 self.input_buffer.clear();

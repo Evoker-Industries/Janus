@@ -567,9 +567,17 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 .style(Style::default().fg(Color::Yellow))
         }
     } else {
-        Paragraph::new(
-            "Press 'q' to quit | Tab to switch views | 'r' to refresh | 'a' to add",
-        )
+        // Context-sensitive footer message
+        let context_hint = match app.current_tab {
+            Tab::Routes => "'a' add route",
+            Tab::Upstreams => "'a' add upstream",
+            Tab::Config => "'a' add static dir",
+            _ => "'a' add item",
+        };
+        Paragraph::new(format!(
+            "Press 'q' to quit | Tab to switch views | 'r' to refresh | {}",
+            context_hint
+        ))
         .style(Style::default().fg(Color::DarkGray))
     };
 
