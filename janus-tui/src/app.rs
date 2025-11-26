@@ -2,7 +2,7 @@
 
 use crate::client::ManagementClient;
 use crossterm::event::{KeyCode, KeyEvent};
-use janus_common::config::{RouteConfig, StaticFileConfig};
+use janus_common::config::{BackendServer, LoadBalancing, RouteConfig, StaticFileConfig, UpstreamConfig};
 use janus_common::{ClientMessage, JanusConfig, ServerMessage, ServerStats, ServerStatus};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -50,6 +50,9 @@ pub struct App {
 
     /// New static directory being created
     pub new_static_dir: NewStaticDir,
+
+    /// New upstream being created
+    pub new_upstream: NewUpstream,
 
     /// Last refresh time
     pub last_refresh: Instant,
@@ -112,6 +115,14 @@ pub enum EditMode {
     AddStaticPath,
     /// Adding static directory - step 2: root directory
     AddStaticRoot,
+    /// Adding upstream - step 1: name
+    AddUpstreamName,
+    /// Adding upstream - step 2: server address
+    AddUpstreamServer,
+    /// Adding upstream - step 3: server weight
+    AddUpstreamWeight,
+    /// Adding upstream - step 4: load balancing strategy
+    AddUpstreamLoadBalancing,
 }
 
 /// New route being created
@@ -127,6 +138,32 @@ pub struct NewRoute {
 pub struct NewStaticDir {
     pub path: String,
     pub root: String,
+}
+
+/// New upstream being created
+#[derive(Debug, Clone, Default)]
+pub struct NewUpstream {
+    pub name: String,
+    pub server_address: String,
+    pub server_weight: u32,
+    /// Selected load balancing option index (0-3)
+    pub lb_selection: usize,
+}
+
+impl NewUpstream {
+    /// Available load balancing options
+    pub const LB_OPTIONS: [&'static str; 4] = ["round_robin", "least_connections", "random", "ip_hash"];
+    
+    /// Get the selected load balancing strategy
+    pub fn selected_lb(&self) -> LoadBalancing {
+        match self.lb_selection {
+            0 => LoadBalancing::RoundRobin,
+            1 => LoadBalancing::LeastConnections,
+            2 => LoadBalancing::Random,
+            3 => LoadBalancing::IpHash,
+            _ => LoadBalancing::RoundRobin,
+        }
+    }
 }
 
 /// Status message for display
@@ -154,6 +191,7 @@ impl App {
             input_buffer: String::new(),
             new_route: NewRoute::default(),
             new_static_dir: NewStaticDir::default(),
+            new_upstream: NewUpstream::default(),
             last_refresh: Instant::now(),
             refresh_interval: Duration::from_secs(2),
             needs_config_refresh: false,
@@ -278,6 +316,32 @@ impl App {
     pub async fn handle_key(&mut self, key: KeyEvent) {
         // Handle editing mode
         if self.is_editing() {
+            // Special handling for load balancing dropdown selection
+            if self.edit_mode == EditMode::AddUpstreamLoadBalancing {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.edit_mode = EditMode::None;
+                        self.input_buffer.clear();
+                    }
+                    KeyCode::Enter => {
+                        self.submit_edit().await;
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if self.new_upstream.lb_selection > 0 {
+                            self.new_upstream.lb_selection -= 1;
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if self.new_upstream.lb_selection < NewUpstream::LB_OPTIONS.len() - 1 {
+                            self.new_upstream.lb_selection += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            
+            // Normal text input editing
             match key.code {
                 KeyCode::Esc => {
                     self.edit_mode = EditMode::None;
@@ -481,6 +545,16 @@ impl App {
                                 }
                             }
                         }
+                        Tab::Upstreams => {
+                            // Add upstream
+                            self.new_upstream = NewUpstream::default();
+                            self.input_buffer.clear();
+                            self.edit_mode = EditMode::AddUpstreamName;
+                            self.add_message(
+                                "Enter upstream name (e.g., backend, api)",
+                                false,
+                            );
+                        }
                         Tab::Config => {
                             // Add static directory
                             self.new_static_dir = NewStaticDir::default();
@@ -646,6 +720,85 @@ impl App {
                 self.input_buffer.clear();
                 self.new_static_dir = NewStaticDir::default();
             }
+            EditMode::AddUpstreamName => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Upstream name cannot be empty", true);
+                    return;
+                }
+                // Check if upstream already exists
+                if let Some(ref config) = self.config {
+                    if config.upstreams.contains_key(&self.input_buffer) {
+                        self.add_message(
+                            &format!("Upstream '{}' already exists", self.input_buffer),
+                            true,
+                        );
+                        return;
+                    }
+                }
+                self.new_upstream.name = self.input_buffer.clone();
+                self.input_buffer.clear();
+                self.edit_mode = EditMode::AddUpstreamServer;
+                self.add_message("Enter server address (e.g., localhost:8001)", false);
+            }
+            EditMode::AddUpstreamServer => {
+                if self.input_buffer.is_empty() {
+                    self.add_message("Server address cannot be empty", true);
+                    return;
+                }
+                self.new_upstream.server_address = self.input_buffer.clone();
+                self.input_buffer = "1".to_string(); // Default weight
+                self.edit_mode = EditMode::AddUpstreamWeight;
+                self.add_message("Enter server weight (default: 1)", false);
+            }
+            EditMode::AddUpstreamWeight => {
+                let weight: u32 = match self.input_buffer.parse() {
+                    Ok(w) if w > 0 => w,
+                    _ => {
+                        if !self.input_buffer.is_empty() {
+                            self.add_message("Invalid weight, using default value of 1", false);
+                        }
+                        1
+                    }
+                };
+                self.new_upstream.server_weight = weight;
+                self.new_upstream.lb_selection = 0; // Default to round_robin
+                self.input_buffer.clear();
+                self.edit_mode = EditMode::AddUpstreamLoadBalancing;
+                self.add_message(
+                    "Select load balancing (j/k or ↑/↓ to navigate, Enter to confirm)",
+                    false,
+                );
+            }
+            EditMode::AddUpstreamLoadBalancing => {
+                let load_balancing = self.new_upstream.selected_lb();
+
+                // Create and send the upstream config
+                let upstream_config = UpstreamConfig {
+                    servers: vec![BackendServer {
+                        address: self.new_upstream.server_address.clone(),
+                        weight: self.new_upstream.server_weight,
+                        backup: false,
+                    }],
+                    load_balancing,
+                    health_check: None,
+                };
+
+                self.send_message(ClientMessage::UpdateUpstream {
+                    name: self.new_upstream.name.clone(),
+                    config: upstream_config,
+                })
+                .await;
+                self.send_message(ClientMessage::GetConfig).await;
+                self.add_message(
+                    &format!("Upstream '{}' added successfully", self.new_upstream.name),
+                    false,
+                );
+
+                // Reset state
+                self.edit_mode = EditMode::None;
+                self.input_buffer.clear();
+                self.new_upstream = NewUpstream::default();
+            }
             EditMode::None => {}
         }
     }
@@ -660,6 +813,19 @@ impl App {
             EditMode::EditServerPort => "Server port: ",
             EditMode::AddStaticPath => "URL path: ",
             EditMode::AddStaticRoot => "Root directory: ",
+            EditMode::AddUpstreamName => "Upstream name: ",
+            EditMode::AddUpstreamServer => "Server address: ",
+            EditMode::AddUpstreamWeight => "Server weight: ",
+            EditMode::AddUpstreamLoadBalancing => "Load balancing: ",
+        }
+    }
+
+    /// Get dropdown options for the current mode
+    pub fn get_dropdown_options(&self) -> Option<(&[&'static str], usize)> {
+        if self.edit_mode == EditMode::AddUpstreamLoadBalancing {
+            Some((&NewUpstream::LB_OPTIONS, self.new_upstream.lb_selection))
+        } else {
+            None
         }
     }
 }
