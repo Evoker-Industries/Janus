@@ -39,6 +39,9 @@ pub struct App {
     pub selected_upstream: usize,
     pub selected_static_dir: usize,
 
+    /// Selected upstream index for route creation
+    pub selected_upstream_for_route: usize,
+
     /// Edit mode
     pub edit_mode: EditMode,
 
@@ -187,6 +190,7 @@ impl App {
             selected_route: 0,
             selected_upstream: 0,
             selected_static_dir: 0,
+            selected_upstream_for_route: 0,
             edit_mode: EditMode::None,
             input_buffer: String::new(),
             new_route: NewRoute::default(),
@@ -314,7 +318,35 @@ impl App {
 
     /// Handle key input
     pub async fn handle_key(&mut self, key: KeyEvent) {
-        // Handle editing mode
+        // Handle upstream selection mode separately (uses selection, not text input)
+        if self.edit_mode == EditMode::AddRouteUpstream {
+            match key.code {
+                KeyCode::Esc => {
+                    self.edit_mode = EditMode::None;
+                    self.input_buffer.clear();
+                    self.selected_upstream_for_route = 0;
+                }
+                KeyCode::Enter => {
+                    self.submit_edit().await;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.selected_upstream_for_route > 0 {
+                        self.selected_upstream_for_route -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if let Some(ref config) = self.config {
+                        if self.selected_upstream_for_route < config.upstreams.len().saturating_sub(1) {
+                            self.selected_upstream_for_route += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Handle other editing modes (text input)
         if self.is_editing() {
             // Special handling for load balancing dropdown selection
             if self.edit_mode == EditMode::AddUpstreamLoadBalancing {
@@ -598,43 +630,29 @@ impl App {
                 }
                 self.new_route.path = self.input_buffer.clone();
                 self.input_buffer.clear();
+                self.selected_upstream_for_route = 0;
                 self.edit_mode = EditMode::AddRouteUpstream;
 
-                // Show available upstreams
-                if let Some(ref config) = self.config {
-                    let upstreams: Vec<_> = config.upstreams.keys().collect();
-                    self.add_message(
-                        &format!(
-                            "Enter upstream name. Available: {}",
-                            upstreams
-                                .iter()
-                                .map(|s| s.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                        false,
-                    );
-                }
+                // Show message about selecting upstream
+                self.add_message(
+                    "Use j/k or arrows to select upstream, Enter to confirm",
+                    false,
+                );
             }
             EditMode::AddRouteUpstream => {
-                if self.input_buffer.is_empty() {
-                    self.add_message("Upstream cannot be empty", true);
-                    return;
-                }
-                // Validate upstream exists
+                // Get the selected upstream name from the list
                 if let Some(ref config) = self.config {
-                    if !config.upstreams.contains_key(&self.input_buffer) {
-                        self.add_message(
-                            &format!("Upstream '{}' not found", self.input_buffer),
-                            true,
-                        );
-                        return;
+                    if let Some(name) = config.upstreams.keys().nth(self.selected_upstream_for_route) {
+                        self.new_route.upstream = name.clone();
+                        self.input_buffer = "30".to_string(); // Default timeout
+                        self.edit_mode = EditMode::AddRouteTimeout;
+                        self.add_message("Enter timeout in seconds (default: 30)", false);
+                    } else {
+                        self.add_message("No upstream selected", true);
                     }
+                } else {
+                    self.add_message("No configuration available", true);
                 }
-                self.new_route.upstream = self.input_buffer.clone();
-                self.input_buffer = "30".to_string(); // Default timeout
-                self.edit_mode = EditMode::AddRouteTimeout;
-                self.add_message("Enter timeout in seconds (default: 30)", false);
             }
             EditMode::AddRouteTimeout => {
                 let timeout: u64 = self.input_buffer.parse().unwrap_or(30);
@@ -808,7 +826,7 @@ impl App {
         match self.edit_mode {
             EditMode::None => "",
             EditMode::AddRoutePath => "Route path: ",
-            EditMode::AddRouteUpstream => "Upstream: ",
+            EditMode::AddRouteUpstream => "", // Uses selection UI, not text input
             EditMode::AddRouteTimeout => "Timeout (seconds): ",
             EditMode::EditServerPort => "Server port: ",
             EditMode::AddStaticPath => "URL path: ",

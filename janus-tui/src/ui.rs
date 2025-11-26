@@ -1,11 +1,11 @@
 //! TUI rendering
 
-use crate::app::{App, Tab};
+use crate::app::{App, EditMode, Tab};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
+    widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
     Frame,
 };
 
@@ -26,6 +26,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_main_content(f, app, chunks[1]);
     draw_messages(f, app, chunks[2]);
     draw_footer(f, app, chunks[3]);
+
+    // Draw upstream selector popup if in AddRouteUpstream mode
+    if app.edit_mode == EditMode::AddRouteUpstream {
+        draw_upstream_selector(f, app);
+    }
 }
 
 /// Draw tab bar
@@ -262,6 +267,58 @@ fn draw_upstreams(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(list, area);
 }
 
+/// Draw upstream selector popup for route creation
+fn draw_upstream_selector(f: &mut Frame, app: &App) {
+    let Some(ref config) = app.config else {
+        return;
+    };
+
+    if config.upstreams.is_empty() {
+        return;
+    }
+
+    // Calculate popup size and position (centered)
+    let area = f.size();
+    let popup_width = 50.min(area.width.saturating_sub(4));
+    let upstream_count = config.upstreams.len() as u16;
+    let popup_height = (upstream_count + 2).min(area.height.saturating_sub(4)); // +2 for borders
+
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    f.render_widget(Clear, popup_area);
+
+    // Create list items for each upstream
+    let items: Vec<ListItem> = config
+        .upstreams
+        .keys()
+        .enumerate()
+        .map(|(i, name)| {
+            let style = if i == app.selected_upstream_for_route {
+                Style::default()
+                    .bg(Color::Yellow)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            ListItem::new(Line::from(name.as_str())).style(style)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Select Upstream (j/k to navigate, Enter to select)")
+            .border_style(Style::default().fg(Color::Yellow)),
+    );
+
+    f.render_widget(list, popup_area);
+}
+
 /// Draw config tab
 fn draw_config(f: &mut Frame, app: &App, area: Rect) {
     // Split into two sections: server settings and static directories
@@ -486,7 +543,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::raw("  q              - Quit"),
         Line::raw(""),
         Line::styled("Routes Tab", Style::default().add_modifier(Modifier::BOLD)),
-        Line::raw("  a              - Add new route"),
+        Line::raw("  a              - Add new route (select upstream from list)"),
         Line::raw("  d / Delete     - Delete selected route"),
         Line::raw(""),
         Line::styled("Upstreams Tab", Style::default().add_modifier(Modifier::BOLD)),
@@ -499,7 +556,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::raw("  d / Delete     - Delete selected static directory"),
         Line::raw(""),
         Line::styled("Editing", Style::default().add_modifier(Modifier::BOLD)),
-        Line::raw("  Enter          - Confirm input"),
+        Line::raw("  Enter          - Confirm input/selection"),
         Line::raw("  Esc            - Cancel editing"),
         Line::raw(""),
         Line::styled("Notes", Style::default().add_modifier(Modifier::BOLD)),
@@ -538,7 +595,11 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 
 /// Draw footer
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
-    let footer = if app.is_editing() {
+    let footer = if app.edit_mode == EditMode::AddRouteUpstream {
+        // Special case for upstream selection mode - uses popup, not text input
+        Paragraph::new("j/k: navigate | Enter: select | Esc: cancel")
+            .style(Style::default().fg(Color::Yellow))
+    } else if app.is_editing() {
         if let Some((options, selected)) = app.get_dropdown_options() {
             // Render dropdown menu
             let options_display: Vec<Span> = options
