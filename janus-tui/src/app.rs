@@ -568,9 +568,8 @@ impl App {
             EditMode::AddRouteUpstream => {
                 // Get the selected upstream name from the list
                 if let Some(ref config) = self.config {
-                    let upstream_names: Vec<_> = config.upstreams.keys().collect();
-                    if let Some(name) = upstream_names.get(self.selected_upstream_for_route) {
-                        self.new_route.upstream = (*name).clone();
+                    if let Some(name) = config.upstreams.keys().nth(self.selected_upstream_for_route) {
+                        self.new_route.upstream = name.clone();
                         self.input_buffer = "30".to_string(); // Default timeout
                         self.edit_mode = EditMode::AddRouteTimeout;
                         self.add_message("Enter timeout in seconds (default: 30)", false);
@@ -674,7 +673,7 @@ impl App {
         match self.edit_mode {
             EditMode::None => "",
             EditMode::AddRoutePath => "Route path: ",
-            EditMode::AddRouteUpstream => "Upstream: ",
+            EditMode::AddRouteUpstream => "", // Uses selection UI, not text input
             EditMode::AddRouteTimeout => "Timeout (seconds): ",
             EditMode::EditServerPort => "Server port: ",
             EditMode::AddStaticPath => "URL path: ",
