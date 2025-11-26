@@ -596,12 +596,10 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 /// Draw footer
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let footer = if app.edit_mode == EditMode::AddRouteUpstream {
+        // Special case for upstream selection mode - uses popup, not text input
         Paragraph::new("j/k: navigate | Enter: select | Esc: cancel")
             .style(Style::default().fg(Color::Yellow))
     } else if app.is_editing() {
-        Paragraph::new(format!("{}{}_", app.get_edit_prompt(), app.input_buffer))
-            .style(Style::default().fg(Color::Yellow))
-    let footer = if app.is_editing() {
         if let Some((options, selected)) = app.get_dropdown_options() {
             // Render dropdown menu
             let options_display: Vec<Span> = options
